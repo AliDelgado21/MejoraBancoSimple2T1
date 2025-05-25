@@ -21,16 +21,19 @@ namespace BancoSimple2T1
 
         private void btnAceptar_Click(object sender, EventArgs e)
         {
+            // Valida los datos ingresados y crea un nuevo cliente si son válidos.
             if (string.IsNullOrWhiteSpace(txtNombre.Text) || string.IsNullOrWhiteSpace(txtIdentificacion.Text))
             {
-                MessageBox.Show("Todos los campos son necesarios");
+                MessageBox.Show("Todos los campos son obligatorios.", "Validación", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+
             NuevoCliente = new Cliente
             {
-                Nombre = txtNombre.Text,
-                Identificacion = txtIdentificacion.Text
+                Nombre = txtNombre.Text.Trim(),
+                Identificacion = txtIdentificacion.Text.Trim()
             };
+
             DialogResult = DialogResult.OK;
             Close();
         }
