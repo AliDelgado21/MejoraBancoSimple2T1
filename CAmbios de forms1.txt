@@ -1,0 +1,182 @@
+using BancoSimple2T1.Data;
+using BancoSimple2T1.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace BancoSimple2T1
+{
+    public partial class Form1 : Form
+    {
+        private readonly BancoSimpleContext _db = new();
+
+        public Form1()
+        {
+            InitializeComponent();
+            CargarInformacion();
+        }
+
+        private void CargarInformacion()
+        {
+            dgvClientes.DataSource = _db.Cliente.ToList();
+
+            var cuentasActivas = _db.Cuenta
+                .Include(c => c.cliente)
+                .Where(c => c.Activa)
+                .Select(c => new
+                {
+                    c.CuentaId,
+                    c.NumeroCuenta,
+                    c.Saldo,
+                    NombreCliente = c.cliente.Nombre,
+                    c.Activa,
+                    c.ClienteId
+                })
+                .ToList();
+
+            dgvCuentas.DataSource = cuentasActivas;
+        }
+
+        private void btnAgregarCliente_Click(object sender, EventArgs e)
+        {
+            using var form = new AgregarClienteForm();
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                _db.Cliente.Add(form.NuevoCliente);
+                _db.SaveChanges();
+                CargarInformacion();
+            }
+        }
+
+        private void btnAgregarCuenta_Click(object sender, EventArgs e)
+        {
+            if (!SeleccionarFila(dgvClientes, out var fila))
+            {
+                MostrarMensaje("Seleccione un cliente primero.");
+                return;
+            }
+
+            int clienteId = (int)fila.Cells["ClienteId"].Value;
+            using var form = new AgregarCuentaForm(clienteId);
+
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                _db.Cuenta.Add(form.NuevaCuenta);
+                _db.SaveChanges();
+                CargarInformacion();
+            }
+        }
+
+        private void btnTransferencia_Click(object sender, EventArgs e)
+        {
+            if (dgvCuentas.SelectedRows.Count != 2)
+            {
+                MostrarMensaje("Seleccione exactamente 2 cuentas.");
+                return;
+            }
+
+            int cuentaOrigenId = (int)dgvCuentas.SelectedRows[1].Cells["CuentaId"].Value;
+            int cuentaDestinoId = (int)dgvCuentas.SelectedRows[0].Cells["CuentaId"].Value;
+
+            using var form = new TransaccionesForms(cuentaOrigenId, cuentaDestinoId);
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                RealizarTransaccion(cuentaOrigenId, cuentaDestinoId, form.Monto);
+            }
+        }
+
+        private void RealizarTransaccion(int origenId, int destinoId, decimal monto)
+        {
+            using var transaccion = _db.Database.BeginTransaction(System.Data.IsolationLevel.Serializable);
+            try
+            {
+                var cuentaOrigen = _db.Cuenta.FirstOrDefault(c => c.CuentaId == origenId);
+                var cuentaDestino = _db.Cuenta.FirstOrDefault(c => c.CuentaId == destinoId);
+
+                if (cuentaOrigen is null || cuentaDestino is null)
+                    throw new InvalidOperationException("Una o ambas cuentas no existen.");
+
+                if (!cuentaOrigen.Activa || !cuentaDestino.Activa)
+                    throw new InvalidOperationException("Una o ambas cuentas están inactivas.");
+
+                if (cuentaOrigen.Saldo < monto)
+                    throw new InvalidOperationException("Saldo insuficiente en la cuenta de origen.");
+
+                cuentaOrigen.Saldo -= monto;
+                cuentaDestino.Saldo += monto;
+
+                _db.Transacciones.Add(new Transaccion
+                {
+                    Monto = monto,
+                    Fecha = DateTime.Now,
+                    Descripcion = "Transferencia entre cuentas",
+                    CuentaOrigenId = origenId,
+                    CuentaDestinoId = destinoId
+                });
+
+                _db.SaveChanges();
+                transaccion.Commit();
+
+                MostrarMensaje("Transferencia realizada exitosamente.");
+                CargarInformacion();
+            }
+            catch (Exception ex)
+            {
+                transaccion.Rollback();
+                string detalle = ex.InnerException?.Message ?? "Sin detalles adicionales.";
+                MostrarMensaje($"Error en la transferencia:\n{ex.Message}\n\nDetalle:\n{detalle}");
+            }
+        }
+
+        private void btnBuscarCleinte_Click(object sender, EventArgs e)
+        {
+            string patron = txtBuscarCliente.Text.Trim();
+
+            var clientes = _db.Cliente
+                .Where(c => EF.Functions.Like(c.Nombre, $"%{patron}%"))
+                .ToList();
+
+            dgvClientes.DataSource = clientes;
+        }
+
+        private void btnVerTrans_Click(object sender, EventArgs e)
+        {
+            using var form = new VerTransferenciaForms();
+            form.ShowDialog();
+        }
+
+        private void btnDesactivar_Click(object sender, EventArgs e)
+        {
+            if (!SeleccionarFila(dgvCuentas, out var fila))
+            {
+                MostrarMensaje("Seleccione una cuenta exactamente.");
+                return;
+            }
+
+            int cuentaId = (int)fila.Cells["CuentaId"].Value;
+            var cuenta = _db.Cuenta.Find(cuentaId);
+
+            if (cuenta != null)
+            {
+                cuenta.Activa = false;
+                _db.SaveChanges();
+                CargarInformacion();
+            }
+        }
+
+        // Métodos auxiliares
+
+        private bool SeleccionarFila(DataGridView dgv, out DataGridViewRow fila)
+        {
+            fila = null;
+            if (dgv.SelectedRows.Count != 1)
+                return false;
+
+            fila = dgv.SelectedRows[0];
+            return true;
+        }
+
+        private void MostrarMensaje(string mensaje)
+        {
+            MessageBox.Show(mensaje, "Información", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+}
