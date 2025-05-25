@@ -22,7 +22,15 @@ namespace BancoSimple2T1
 
         private void CargarTransacciones()
         {
-            dgvTransferencias.DataSource = con.Transacciones.ToList();
+            try
+            {
+                dgvTransferencias.DataSource = _context.Transacciones.ToList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar las transferencias:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
         }
     }
 }
